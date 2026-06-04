@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * create-startup — scaffolds a Startup API-powered project.
+ * create-startup-api — scaffolds a Startup API-powered project.
  *
  * Usage:
- *   npm create startup [my-app] [-- --origin https://example.com] [--no-install]
+ *   npm create startup-api [my-app] [-- --origin https://example.com] [--no-install]
  *
  * Currently this generates a Cloudflare Worker (powered by the
  * `@startup-api/cloudflare` package) that transparently proxies back to an
@@ -89,7 +89,7 @@ function resolveWorkerPackage() {
   } catch {
     fail(
       'Could not resolve the `@startup-api/cloudflare` package.\n' +
-        '  This is a dependency of create-startup; try reinstalling.',
+        '  This is a dependency of create-startup-api; try reinstalling.',
     );
   }
   const root = dirname(pkgJsonPath);
@@ -130,7 +130,7 @@ function applyVars(str, vars) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  console.log(`\n${bold('create-startup')} ${dim('· Startup API project scaffolder')}\n`);
+  console.log(`\n${bold('create-startup-api')} ${dim('· Startup API project scaffolder')}\n`);
 
   // Input model:
   //   --yes        → never prompt; everything must come from flags.

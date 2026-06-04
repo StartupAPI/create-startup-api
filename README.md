@@ -1,11 +1,11 @@
-# create-startup
+# create-startup-api
 
 Scaffold a [Startup API](https://startupapi.com)-powered project in seconds.
 
 ```bash
-npm create startup
+npm create startup-api
 # or
-npm create startup my-app -- --origin https://your-app.com
+npm create startup-api my-app -- --origin https://your-app.com
 ```
 
 ## What it does
@@ -23,7 +23,7 @@ Upgrades are a `npm update @startup-api/cloudflare` away.
 ## Usage
 
 ```
-npm create startup [name] [-- <options>]
+npm create startup-api [name] [-- <options>]
 ```
 
 | Option              | Description                                                        |

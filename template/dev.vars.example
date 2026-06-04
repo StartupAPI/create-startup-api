@@ -1,5 +1,5 @@
 # Copy this file to `.dev.vars` (gitignored) for local `wrangler dev`.
-# `npm create startup` already generated a `.dev.vars` with a random secret.
+# `npm create startup-api` already generated a `.dev.vars` with a random secret.
 
 # Signs session cookies. Use a long random string; keep it secret.
 SESSION_SECRET=""

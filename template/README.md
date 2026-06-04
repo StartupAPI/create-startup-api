@@ -1,7 +1,7 @@
 # __PROJECT_NAME__
 
 A [Startup API](https://startupapi.com)-powered Cloudflare Worker, created with
-`npm create startup`. It transparently proxies requests to your origin and
+`npm create startup-api`. It transparently proxies requests to your origin and
 layers on user accounts, authentication, and other Startup API features.
 
 The worker logic lives in the [`@startup-api/cloudflare`](https://github.com/StartupAPI/startup-api-cloudflare)

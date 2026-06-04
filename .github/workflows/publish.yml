@@ -1,6 +1,6 @@
 name: Publish
 
-# Publishes create-startup to npm when a GitHub Release is published.
+# Publishes create-startup-api to npm when a GitHub Release is published.
 # Create a release whose tag matches the package version (e.g. v0.0.1) — the
 # workflow verifies the two agree before publishing. Can also be run manually.
 on:
