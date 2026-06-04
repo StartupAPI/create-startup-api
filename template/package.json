@@ -1,0 +1,19 @@
+{
+  "name": "__PROJECT_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/sync-assets.mjs",
+    "dev": "wrangler dev",
+    "preview": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@startup-api/cloudflare": "__WORKER_VERSION__"
+  },
+  "devDependencies": {
+    "wrangler": "^4.60.0"
+  }
+}

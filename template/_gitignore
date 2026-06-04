@@ -1,0 +1,17 @@
+node_modules/
+.wrangler/
+dist/
+
+# Wrangler local secrets — never commit these
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!.env.example
+
+# Generated types
+worker-configuration.d.ts
+
+.DS_Store
+*.log

@@ -1,0 +1,31 @@
+{
+  "name": "create-startup",
+  "version": "0.0.1",
+  "description": "Scaffold a Startup API-powered project. Run `npm create startup`.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/StartupAPI/create-startup.git"
+  },
+  "type": "module",
+  "bin": {
+    "create-startup": "index.js"
+  },
+  "files": [
+    "index.js",
+    "template"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "startup-api",
+    "cloudflare",
+    "workers",
+    "scaffold",
+    "create"
+  ],
+  "dependencies": {
+    "@startup-api/cloudflare": "^0.0.1"
+  }
+}

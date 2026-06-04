@@ -1,0 +1,11 @@
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# npm pack output
+*.tgz
+
+.DS_Store
+.env

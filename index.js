@@ -1,0 +1,263 @@
+#!/usr/bin/env node
+/**
+ * create-startup — scaffolds a Startup API-powered project.
+ *
+ * Usage:
+ *   npm create startup [my-app] [-- --origin https://example.com] [--no-install]
+ *
+ * Currently this generates a Cloudflare Worker (powered by the
+ * `@startup-api/cloudflare` package) that transparently proxies back to an
+ * origin URL — the origin/object you provide during creation.
+ */
+
+import { createRequire } from 'node:module';
+import { randomBytes } from 'node:crypto';
+import { dirname, join, resolve, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import {
+  mkdirSync,
+  readdirSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  cpSync,
+  statSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline/promises';
+import { stdin, stdout } from 'node:process';
+
+const require = createRequire(import.meta.url);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const TEMPLATE_DIR = join(__dirname, 'template');
+
+// --- tiny ANSI helpers (no deps) -------------------------------------------
+const tty = stdout.isTTY;
+const c = (code, s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s);
+const bold = (s) => c('1', s);
+const dim = (s) => c('2', s);
+const green = (s) => c('32', s);
+const cyan = (s) => c('36', s);
+const red = (s) => c('31', s);
+
+function fail(msg) {
+  console.error(`\n${red('✖')} ${msg}\n`);
+  process.exit(1);
+}
+
+// --- argument parsing -------------------------------------------------------
+function parseArgs(argv) {
+  const out = { _: [], install: true, origin: undefined };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--no-install') out.install = false;
+    else if (a === '--install') out.install = true;
+    else if (a === '--origin' || a === '-o') out.origin = argv[++i];
+    else if (a.startsWith('--origin=')) out.origin = a.slice('--origin='.length);
+    else if (a === '--yes' || a === '-y') out.yes = true;
+    else if (a.startsWith('-')) fail(`Unknown option: ${a}`);
+    else out._.push(a);
+  }
+  return out;
+}
+
+function normalizeOrigin(input) {
+  let v = (input || '').trim();
+  if (!v) return null;
+  if (!/^https?:\/\//i.test(v)) v = `https://${v}`;
+  try {
+    const u = new URL(v);
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function isEmptyDir(dir) {
+  if (!existsSync(dir)) return true;
+  if (!statSync(dir).isDirectory()) return false;
+  const entries = readdirSync(dir).filter((e) => e !== '.git' && e !== '.DS_Store');
+  return entries.length === 0;
+}
+
+// Resolve the bundled worker package so we can copy its canonical wrangler
+// config and read the version to pin in the generated project.
+function resolveWorkerPackage() {
+  let pkgJsonPath;
+  try {
+    pkgJsonPath = require.resolve('@startup-api/cloudflare/package.json');
+  } catch {
+    fail(
+      'Could not resolve the `@startup-api/cloudflare` package.\n' +
+        '  This is a dependency of create-startup; try reinstalling.',
+    );
+  }
+  const root = dirname(pkgJsonPath);
+  const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
+  return { root, version: pkg.version };
+}
+
+// Recursively copy template/, applying placeholder substitution and the
+// dotfile renames npm strips on publish.
+const RENAMES = {
+  _gitignore: '.gitignore',
+  'dev.vars.example': '.dev.vars.example',
+};
+
+function copyTemplate(srcDir, destDir, vars) {
+  mkdirSync(destDir, { recursive: true });
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    const srcPath = join(srcDir, entry.name);
+    const outName = RENAMES[entry.name] || entry.name;
+    const destPath = join(destDir, outName);
+    if (entry.isDirectory()) {
+      copyTemplate(srcPath, destPath, vars);
+    } else {
+      let content = readFileSync(srcPath, 'utf8');
+      for (const [k, val] of Object.entries(vars)) {
+        content = content.replaceAll(k, val);
+      }
+      writeFileSync(destPath, content);
+    }
+  }
+}
+
+function applyVars(str, vars) {
+  for (const [k, val] of Object.entries(vars)) str = str.replaceAll(k, val);
+  return str;
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+
+  console.log(`\n${bold('create-startup')} ${dim('· Startup API project scaffolder')}\n`);
+
+  // Input model:
+  //   --yes        → never prompt; everything must come from flags.
+  //   TTY          → interactive readline prompts.
+  //   piped stdin  → answers are read line-by-line from the buffered input.
+  // When input is exhausted, `ask` returns its fallback; callers with no
+  // sensible default fail with a clear error.
+  const useReadline = stdin.isTTY && !args.yes;
+  const rl = useReadline ? createInterface({ input: stdin, output: stdout }) : null;
+
+  let pipedLines = null;
+  if (!useReadline && !args.yes && !stdin.isTTY) {
+    const chunks = [];
+    for await (const chunk of stdin) chunks.push(chunk);
+    const text = Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/, '');
+    pipedLines = text.length ? text.split(/\r?\n/) : [];
+  }
+
+  const canPrompt = () => !!rl || (pipedLines && pipedLines.length > 0);
+
+  const ask = async (q, fallback) => {
+    if (rl) {
+      const a = (await rl.question(q)).trim();
+      return a || fallback;
+    }
+    if (pipedLines && pipedLines.length) {
+      stdout.write(q);
+      const a = pipedLines.shift().trim();
+      stdout.write(`${a}\n`);
+      return a || fallback;
+    }
+    return fallback;
+  };
+
+  try {
+    // 1. Project name / directory ------------------------------------------
+    let projectName = args._[0];
+    if (!projectName) {
+      projectName = await ask(`${cyan('?')} Project name: `, 'my-startup');
+    }
+    projectName = projectName.trim().replace(/\/+$/, '');
+    if (!projectName) fail('A project name is required.');
+
+    const targetDir = resolve(process.cwd(), projectName);
+    const pkgName = basename(targetDir)
+      .toLowerCase()
+      .replace(/[^a-z0-9-_]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'startup-app';
+
+    if (!isEmptyDir(targetDir)) {
+      fail(`Target directory ${cyan(targetDir)} already exists and is not empty.`);
+    }
+
+    // 2. Origin URL (what the worker proxies back to) ----------------------
+    let origin = normalizeOrigin(args.origin);
+    while (!origin) {
+      if (!canPrompt()) {
+        fail('A valid origin URL is required. Pass it with --origin <url>.');
+      }
+      const answer = await ask(
+        `${cyan('?')} Origin URL to proxy to ${dim('(e.g. https://your-app.com)')}: `,
+        '',
+      );
+      origin = normalizeOrigin(answer);
+      if (!origin && stdin.isTTY) {
+        console.log(`  ${red('Please enter a valid URL.')}`);
+      }
+    }
+
+    rl?.close();
+
+    // 3. Gather template data ----------------------------------------------
+    const worker = resolveWorkerPackage();
+    const sessionSecret = randomBytes(32).toString('hex');
+    const vars = {
+      __PROJECT_NAME__: pkgName,
+      __ORIGIN_URL__: origin,
+      __WORKER_VERSION__: `^${worker.version}`,
+    };
+
+    console.log(`\n${dim('Scaffolding into')} ${cyan(targetDir)}\n`);
+
+    // 4. Copy the static template ------------------------------------------
+    copyTemplate(TEMPLATE_DIR, targetDir, vars);
+
+    // 5. Generate wrangler.jsonc from the worker package's canonical template
+    const wranglerTemplatePath = join(worker.root, 'wrangler.template.jsonc');
+    const wranglerOut = applyVars(readFileSync(wranglerTemplatePath, 'utf8'), vars);
+    writeFileSync(join(targetDir, 'wrangler.jsonc'), wranglerOut);
+
+    // 6. Write local dev secrets (gitignored) so `wrangler dev` works at once
+    const devVars =
+      `# Local development secrets for \`wrangler dev\` (gitignored).\n` +
+      `SESSION_SECRET="${sessionSecret}"\n` +
+      `ORIGIN_URL="${origin}"\n`;
+    writeFileSync(join(targetDir, '.dev.vars'), devVars);
+
+    // 7. Install dependencies (runs the project's sync-assets postinstall) --
+    let installed = false;
+    if (args.install) {
+      console.log(`${dim('Installing dependencies with npm…')}\n`);
+      const res = spawnSync('npm', ['install'], { cwd: targetDir, stdio: 'inherit' });
+      installed = res.status === 0;
+      if (!installed) {
+        console.log(`\n${red('npm install failed')} — you can run it manually below.`);
+      }
+    }
+
+    // 8. Next steps ---------------------------------------------------------
+    const rel = projectName;
+    console.log(`\n${green('✔')} ${bold('Created your Startup API project!')}\n`);
+    console.log(`  Origin (proxied to): ${cyan(origin)}\n`);
+    console.log(bold('  Next steps:\n'));
+    console.log(`    cd ${rel}`);
+    if (!installed) console.log('    npm install');
+    console.log(`    npm run dev            ${dim('# local dev at http://localhost:8787')}`);
+    console.log('');
+    console.log(`    npm run deploy         ${dim('# deploy to Cloudflare')}`);
+    console.log(
+      `    npx wrangler secret put SESSION_SECRET   ${dim('# set the production session secret')}`,
+    );
+    console.log(
+      `\n  ${dim('Configure OAuth and other options in')} ${cyan('wrangler.jsonc')}${dim('. See')} ${cyan('README.md')}.\n`,
+    );
+  } finally {
+    rl?.close();
+  }
+}
+
+main().catch((err) => fail(err?.stack || String(err)));

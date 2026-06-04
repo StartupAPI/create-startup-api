@@ -1,0 +1,17 @@
+# Copy this file to `.dev.vars` (gitignored) for local `wrangler dev`.
+# `npm create startup` already generated a `.dev.vars` with a random secret.
+
+# Signs session cookies. Use a long random string; keep it secret.
+SESSION_SECRET=""
+
+# The origin (or other object) this worker proxies back to.
+ORIGIN_URL=""
+
+# Optional OAuth providers (see README.md for setup):
+# GOOGLE_CLIENT_ID=""
+# GOOGLE_CLIENT_SECRET=""
+# TWITCH_CLIENT_ID=""
+# TWITCH_CLIENT_SECRET=""
+
+# Optional: comma-separated admin user IDs.
+# ADMIN_IDS=""
