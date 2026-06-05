@@ -1,5 +1,11 @@
 # Copy this file to `.dev.vars` (gitignored) for local `wrangler dev`.
 # `npm create startup-api` already generated a `.dev.vars` with a random secret.
+#
+# Environment variables hold ONLY credentials/secrets and per-deployment values.
+# Non-secret behavior (OAuth scopes, Patreon campaign, freshness, access policy)
+# is configured in src/index.ts via the `createStartupAPI` factory.
+
+# --- Required -------------------------------------------------------------
 
 # Signs session cookies. Use a long random string; keep it secret.
 SESSION_SECRET=""
@@ -7,11 +13,34 @@ SESSION_SECRET=""
 # The origin (or other object) this worker proxies back to.
 ORIGIN_URL=""
 
-# Optional OAuth providers (see README.md for setup):
+# --- Auth providers (optional) --------------------------------------------
+# Set a provider's client id + secret to enable it. The provider is then
+# configured in src/index.ts under `providers`.
+
+# Google — https://console.cloud.google.com/ (APIs & Services > Credentials)
+# Redirect URI: https://<your-worker-url>/users/auth/google/callback
 # GOOGLE_CLIENT_ID=""
 # GOOGLE_CLIENT_SECRET=""
+
+# Twitch — https://dev.twitch.tv/console
+# Redirect URI: https://<your-worker-url>/users/auth/twitch/callback
 # TWITCH_CLIENT_ID=""
 # TWITCH_CLIENT_SECRET=""
 
-# Optional: comma-separated admin user IDs.
+# Patreon — https://www.patreon.com/portal/registration/register-clients
+# Redirect URI: https://<your-worker-url>/users/auth/patreon/callback
+# PATREON_CLIENT_ID=""
+# PATREON_CLIENT_SECRET=""
+# Only needed when Patreon webhook freshness is enabled in src/index.ts.
+# PATREON_WEBHOOK_SECRET=""
+
+# --- Other per-deployment values (optional) -------------------------------
+
+# Base URL for OAuth redirects (overrides the request origin).
+# AUTH_ORIGIN=""
+
+# Path used to serve internal assets like power-strip.js (default /users/).
+# USERS_PATH="/users/"
+
+# Comma-separated admin user IDs.
 # ADMIN_IDS=""

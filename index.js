@@ -221,11 +221,22 @@ async function main() {
     const wranglerOut = applyVars(readFileSync(wranglerTemplatePath, 'utf8'), vars);
     writeFileSync(join(targetDir, 'wrangler.jsonc'), wranglerOut);
 
-    // 6. Write local dev secrets (gitignored) so `wrangler dev` works at once
+    // 6. Write local dev secrets (gitignored) so `wrangler dev` works at once.
+    //    Required values are filled in; auth-provider credentials are left as
+    //    commented placeholders to enable (each provider is configured in
+    //    src/index.ts via the createStartupAPI factory). See .dev.vars.example.
     const devVars =
       `# Local development secrets for \`wrangler dev\` (gitignored).\n` +
       `SESSION_SECRET="${sessionSecret}"\n` +
-      `ORIGIN_URL="${origin}"\n`;
+      `ORIGIN_URL="${origin}"\n` +
+      `\n` +
+      `# Uncomment and fill in to enable an auth provider (configured in src/index.ts):\n` +
+      `# GOOGLE_CLIENT_ID=""\n` +
+      `# GOOGLE_CLIENT_SECRET=""\n` +
+      `# TWITCH_CLIENT_ID=""\n` +
+      `# TWITCH_CLIENT_SECRET=""\n` +
+      `# PATREON_CLIENT_ID=""\n` +
+      `# PATREON_CLIENT_SECRET=""\n`;
     writeFileSync(join(targetDir, '.dev.vars'), devVars);
 
     // 7. Install dependencies (runs the project's sync-assets postinstall) --
@@ -253,7 +264,8 @@ async function main() {
       `    npx wrangler secret put SESSION_SECRET   ${dim('# set the production session secret')}`,
     );
     console.log(
-      `\n  ${dim('Configure OAuth and other options in')} ${cyan('wrangler.jsonc')}${dim('. See')} ${cyan('README.md')}.\n`,
+      `\n  ${dim('Add provider credentials (GOOGLE/TWITCH/PATREON) to')} ${cyan('.dev.vars')}${dim(' and tune')}\n` +
+        `  ${dim('auth behavior in')} ${cyan('src/index.ts')}${dim('. See')} ${cyan('README.md')}.\n`,
     );
   } finally {
     rl?.close();
