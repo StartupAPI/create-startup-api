@@ -107,5 +107,9 @@ in [wrangler.jsonc](wrangler.jsonc); `freshness.webhook` (Patreon) requires
 ## Updating the framework
 
 ```bash
-npm update @startup-api/cloudflare   # re-runs sync-assets to refresh ./public/users
+npm run update-startup-api   # install the latest @startup-api/cloudflare + refresh ./public/users
 ```
+
+This installs the newest published `@startup-api/cloudflare` (across minor/major
+versions) and re-runs `sync-assets` via the postinstall hook. To stay within your
+current semver range instead, use `npm update @startup-api/cloudflare`.

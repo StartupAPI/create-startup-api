@@ -80,12 +80,44 @@ function isEmptyDir(dir) {
   return entries.length === 0;
 }
 
-// Resolve the bundled worker package so we can copy its canonical wrangler
-// config and read the version to pin in the generated project.
-function resolveWorkerPackage() {
+const WORKER_PKG = '@startup-api/cloudflare';
+// Respect a configured registry (npm sets npm_config_registry when run via
+// `npm create`); default to the public registry otherwise.
+const REGISTRY = (process.env.npm_config_registry || 'https://registry.npmjs.org').replace(
+  /\/+$/,
+  '',
+);
+
+async function fetchText(url) {
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText} (${url})`);
+  return res.text();
+}
+
+// Resolve the worker package version + canonical wrangler template to scaffold
+// with. We query the registry for the *latest* published version at creation
+// time (and fetch that exact version's wrangler template) so generated projects
+// are always pinned to the newest release. Falls back to the copy bundled as
+// our own dependency when the network is unavailable.
+async function resolveWorkerPackage() {
+  try {
+    const meta = JSON.parse(await fetchText(`${REGISTRY}/${WORKER_PKG}/latest`));
+    if (!meta.version) throw new Error('registry response missing a version');
+    const wranglerTemplate = await fetchText(
+      `https://unpkg.com/${WORKER_PKG}@${meta.version}/wrangler.template.jsonc`,
+    );
+    return { version: meta.version, wranglerTemplate };
+  } catch (err) {
+    console.warn(
+      `${dim('!')} Could not fetch the latest ${WORKER_PKG} from the registry (${err.message}).\n` +
+        `  ${dim('Falling back to the bundled copy.')}`,
+    );
+  }
+
+  // Offline fallback: the package bundled as our own dependency.
   let pkgJsonPath;
   try {
-    pkgJsonPath = require.resolve('@startup-api/cloudflare/package.json');
+    pkgJsonPath = require.resolve(`${WORKER_PKG}/package.json`);
   } catch {
     fail(
       'Could not resolve the `@startup-api/cloudflare` package.\n' +
@@ -94,7 +126,8 @@ function resolveWorkerPackage() {
   }
   const root = dirname(pkgJsonPath);
   const pkg = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
-  return { root, version: pkg.version };
+  const wranglerTemplate = readFileSync(join(root, 'wrangler.template.jsonc'), 'utf8');
+  return { version: pkg.version, wranglerTemplate };
 }
 
 // Recursively copy template/, applying placeholder substitution and the
@@ -203,7 +236,7 @@ async function main() {
     rl?.close();
 
     // 3. Gather template data ----------------------------------------------
-    const worker = resolveWorkerPackage();
+    const worker = await resolveWorkerPackage();
     const sessionSecret = randomBytes(32).toString('hex');
     const vars = {
       __PROJECT_NAME__: pkgName,
@@ -217,8 +250,7 @@ async function main() {
     copyTemplate(TEMPLATE_DIR, targetDir, vars);
 
     // 5. Generate wrangler.jsonc from the worker package's canonical template
-    const wranglerTemplatePath = join(worker.root, 'wrangler.template.jsonc');
-    const wranglerOut = applyVars(readFileSync(wranglerTemplatePath, 'utf8'), vars);
+    const wranglerOut = applyVars(worker.wranglerTemplate, vars);
     writeFileSync(join(targetDir, 'wrangler.jsonc'), wranglerOut);
 
     // 6. Write local dev secrets (gitignored) so `wrangler dev` works at once.

@@ -8,7 +8,8 @@
     "dev": "wrangler dev",
     "preview": "wrangler dev",
     "deploy": "wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "update-startup-api": "npm install @startup-api/cloudflare@latest"
   },
   "dependencies": {
     "@startup-api/cloudflare": "__WORKER_VERSION__"
