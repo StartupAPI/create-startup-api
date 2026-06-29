@@ -34,6 +34,11 @@ ORIGIN_URL=""
 # Only needed when Patreon webhook freshness is enabled in src/index.ts.
 # PATREON_WEBHOOK_SECRET=""
 
+# AT Protocol / Atmosphere (Bluesky) — a public OAuth client: no client id/secret.
+# Enable it by adding `atproto: {}` to `providers` in src/index.ts, or set the
+# flag below truthy (true/1/yes/on) to enable it without touching code.
+# ATPROTO_ENABLED=""
+
 # --- Other per-deployment values (optional) -------------------------------
 
 # Base URL for OAuth redirects (overrides the request origin).

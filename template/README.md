@@ -46,10 +46,10 @@ block of [wrangler.jsonc](wrangler.jsonc). Keep secrets out of source control â€
 set them with `wrangler secret put`:
 
 ```bash
-npx wrangler secret put GOOGLE_CLIENT_SECRET
-npx wrangler secret put TWITCH_CLIENT_SECRET
-npx wrangler secret put PATREON_CLIENT_SECRET
+__DEPLOY_SECRET_CMDS__
 ```
+
+__PROVIDER_SECTION__
 
 ## Configuration
 
@@ -68,10 +68,13 @@ npx wrangler secret put PATREON_CLIENT_SECRET
 | `PATREON_CLIENT_ID`     | No       | Patreon OAuth2 client ID.                                       |
 | `PATREON_CLIENT_SECRET` | No       | Patreon OAuth2 client secret.                                   |
 | `PATREON_WEBHOOK_SECRET`| No       | Secret for verifying Patreon webhook signatures.                |
+| `ATPROTO_ENABLED`       | No       | Set truthy (`true`/`1`/`yes`/`on`) to enable AT Protocol (Bluesky) login without code. |
 | `ADMIN_IDS`             | No       | Comma-separated admin user IDs.                                 |
 
-Setting a provider's client id and secret enables it. Redirect URIs follow the
-pattern `https://<your-worker-url>/users/auth/<provider>/callback`.
+Setting an OAuth provider's client id and secret enables it. Redirect URIs follow
+the pattern `https://<your-worker-url>/users/auth/<provider>/callback`. AT Protocol
+(Bluesky) has no credentials â€” enable it via `atproto: {}` in
+[src/index.ts](src/index.ts) or the `ATPROTO_ENABLED` flag above.
 
 ### Factory configuration (behavior)
 

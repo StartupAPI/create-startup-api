@@ -1,6 +1,6 @@
 {
   "name": "create-startup-api",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Scaffold a Startup API-powered project. Run `npm create startup-api`.",
   "license": "Apache-2.0",
   "repository": {
@@ -26,6 +26,7 @@
     "create"
   ],
   "dependencies": {
+    "@clack/prompts": "^1.6.0",
     "@startup-api/cloudflare": "^0.4.0"
   }
 }

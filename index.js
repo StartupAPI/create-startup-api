@@ -26,6 +26,7 @@ import {
 import { spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { stdin, stdout } from 'node:process';
+import { multiselect, isCancel } from '@clack/prompts';
 
 const require = createRequire(import.meta.url);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -54,6 +55,8 @@ function parseArgs(argv) {
     else if (a === '--install') out.install = true;
     else if (a === '--origin' || a === '-o') out.origin = argv[++i];
     else if (a.startsWith('--origin=')) out.origin = a.slice('--origin='.length);
+    else if (a === '--providers' || a === '-p') out.providers = argv[++i];
+    else if (a.startsWith('--providers=')) out.providers = a.slice('--providers='.length);
     else if (a === '--yes' || a === '-y') out.yes = true;
     else if (a.startsWith('-')) fail(`Unknown option: ${a}`);
     else out._.push(a);
@@ -78,6 +81,209 @@ function isEmptyDir(dir) {
   if (!statSync(dir).isDirectory()) return false;
   const entries = readdirSync(dir).filter((e) => e !== '.git' && e !== '.DS_Store');
   return entries.length === 0;
+}
+
+// --- login providers -------------------------------------------------------
+// A provider must be rendered into three places: the createStartupAPI factory
+// (src/index.ts), the local .dev.vars, and README.md setup instructions. Each
+// entry below carries the pieces needed for all three; the env var names are
+// derived from the key (e.g. google -> GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).
+const PROVIDERS = {
+  google: {
+    label: 'Google',
+    register: 'https://console.cloud.google.com/ → APIs & Services → Credentials',
+    // Lines placed inside `providers: { ... }` in src/index.ts (4-space indent).
+    factory: [
+      '    // Enabled once GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set.',
+      '    google: {',
+      "      // scopes: 'https://www.googleapis.com/auth/calendar.readonly',",
+      '    },',
+    ],
+  },
+  twitch: {
+    label: 'Twitch',
+    register: 'https://dev.twitch.tv/console',
+    factory: [
+      '    // Enabled once TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET are set.',
+      '    twitch: {',
+      "      // scopes: 'channel:read:subscriptions',",
+      '    },',
+    ],
+  },
+  patreon: {
+    label: 'Patreon',
+    register: 'https://www.patreon.com/portal/registration/register-clients',
+    factory: [
+      '    // Enabled once PATREON_CLIENT_ID / PATREON_CLIENT_SECRET are set.',
+      '    patreon: {',
+      '      // Request membership data so entitlements (active patron, tiers,',
+      '      // benefits) can be read and forwarded to your origin.',
+      "      // scopes: 'identity.memberships',",
+      "      // campaignId: '<CAMPAIGN_ID>',",
+      '      // Keep entitlements fresh. `cron` also needs a matching `triggers.crons`',
+      '      // in wrangler.jsonc; `webhook` also needs PATREON_WEBHOOK_SECRET in env.',
+      "      // freshness: { ttl: true, cron: { schedule: '0 */6 * * *' }, webhook: true },",
+      '    },',
+    ],
+    // Patreon webhook freshness needs an extra secret.
+    extraSecret: 'PATREON_WEBHOOK_SECRET',
+  },
+  atproto: {
+    label: 'AT Protocol (Bluesky)',
+    // A public OAuth client (PKCE/DPoP/PAR): no client id/secret, no app to
+    // register. Including the factory key enables it; ATPROTO_ENABLED is the
+    // credential-free env alternative.
+    credentials: false,
+    factory: [
+      '    // AT Protocol (Atmosphere) — a public OAuth client: no client id/secret',
+      '    // and nothing to register. Including this key enables it (or set',
+      '    // ATPROTO_ENABLED truthy in env). Users sign in with their handle/DID.',
+      '    atproto: {',
+      "      // clientName: 'My App', // shown on the consent screen (default 'StartupAPI')",
+      "      // scopes: 'transition:generic', // extra scopes on top of the base 'atproto'",
+      '    },',
+    ],
+  },
+};
+const PROVIDER_KEYS = Object.keys(PROVIDERS);
+const idVar = (key) => `${key.toUpperCase()}_CLIENT_ID`;
+const secretVar = (key) => `${key.toUpperCase()}_CLIENT_SECRET`;
+const hasCredentials = (key) => PROVIDERS[key].credentials !== false;
+const providerLabels = (keys) => keys.map((k) => PROVIDERS[k].label).join(', ');
+
+// Parse a comma/space-separated provider list into known + unknown buckets.
+function parseProviders(input) {
+  const selected = [];
+  const unknown = [];
+  for (const tok of String(input ?? '').split(/[\s,]+/)) {
+    const key = tok.trim().toLowerCase();
+    if (!key || key === 'none') continue;
+    if (PROVIDERS[key]) {
+      if (!selected.includes(key)) selected.push(key);
+    } else if (!unknown.includes(key)) {
+      unknown.push(key);
+    }
+  }
+  return { selected, unknown };
+}
+
+function warnUnknownProviders(unknown) {
+  if (unknown.length) {
+    console.log(
+      `  ${red(`Ignoring unknown provider(s): ${unknown.join(', ')}`)} ` +
+        `${dim(`(known: ${PROVIDER_KEYS.join(', ')})`)}`,
+    );
+  }
+}
+
+// The `providers: { ... }` block for src/index.ts.
+function renderProvidersConfig(selected) {
+  if (selected.length === 0) {
+    return [
+      '  providers: {',
+      '    // No login providers were enabled at creation time. Add one here and',
+      '    // set its *_CLIENT_ID / *_CLIENT_SECRET to turn it on. Supported:',
+      `    // ${PROVIDER_KEYS.join(', ')}. See README.md and .dev.vars.example.`,
+      '  },',
+    ].join('\n');
+  }
+  const blocks = selected.map((k) => PROVIDERS[k].factory.join('\n')).join('\n');
+  return `  providers: {\n${blocks}\n  },`;
+}
+
+// The auth-provider portion of the generated .dev.vars.
+function renderDevVarsProviders(selected) {
+  if (selected.length === 0) {
+    return (
+      `# No auth providers were selected at creation time. To enable one, add its\n` +
+      `# client id + secret here (see .dev.vars.example) and configure it in src/index.ts.\n`
+    );
+  }
+  let out =
+    `# Auth providers (enabled: ${providerLabels(selected)}), configured in src/index.ts.\n` +
+    `# Fill in any credentials below to sign in during \`npm run dev\`.\n`;
+  for (const k of selected) {
+    if (!hasCredentials(k)) {
+      out += `\n# ${PROVIDERS[k].label} — no credentials needed (enabled in src/index.ts).\n`;
+      continue;
+    }
+    out +=
+      `\n# ${PROVIDERS[k].label} — ${PROVIDERS[k].register}\n` +
+      `# Redirect URI: <your-worker-url>/users/auth/${k}/callback\n` +
+      `${idVar(k)}=""\n` +
+      `${secretVar(k)}=""\n`;
+    if (PROVIDERS[k].extraSecret) {
+      out +=
+        `# Only needed when Patreon webhook freshness is enabled in src/index.ts.\n` +
+        `# ${PROVIDERS[k].extraSecret}=""\n`;
+    }
+  }
+  return out;
+}
+
+// The README "## Login providers" section with per-provider setup steps.
+function renderReadmeSection(selected) {
+  if (selected.length === 0) {
+    return (
+      `## Login providers\n\n` +
+      `No login providers were enabled at creation time. To add one, set its\n` +
+      `\`*_CLIENT_ID\` / \`*_CLIENT_SECRET\` (locally in \`.dev.vars\`, in production as\n` +
+      `Wrangler secrets) and add it to \`providers\` in [src/index.ts](src/index.ts).\n` +
+      `Supported providers: ${providerLabels(PROVIDER_KEYS)}. See\n` +
+      `[.dev.vars.example](.dev.vars.example) for the variable names.\n`
+    );
+  }
+  let out =
+    `## Login providers\n\n` +
+    `This project was scaffolded with **${providerLabels(selected)}** enabled, configured\n` +
+    `in \`providers\` in [src/index.ts](src/index.ts). Credential-based providers turn on\n` +
+    `once their client id and secret are present (placeholders are already in \`.dev.vars\`).\n` +
+    `To finish setup for each provider:\n`;
+  for (const k of selected) {
+    out += `\n### ${PROVIDERS[k].label}\n\n`;
+    if (k === 'atproto') {
+      out +=
+        `AT Protocol (Atmosphere) login is decentralized: there is **no provider to register\n` +
+        `with and no client secret**. The worker is a public OAuth client identified by a\n` +
+        `metadata document it serves itself.\n\n` +
+        `1. Already enabled — its key is in \`providers\` in [src/index.ts](src/index.ts). To\n` +
+        `   toggle it per deployment without code, set \`ATPROTO_ENABLED\` truthy instead.\n` +
+        `2. Deploy over **HTTPS** with a stable hostname. The worker automatically serves its\n` +
+        `   client metadata at \`https://<your-worker-url>/users/auth/atproto/client-metadata.json\`\n` +
+        `   (this URL is the OAuth \`client_id\`) and registers the redirect URI\n` +
+        `   \`https://<your-worker-url>/users/auth/atproto/callback\`.\n` +
+        `3. That's it — visitors sign in with their handle (e.g. \`alice.bsky.social\`) or DID;\n` +
+        `   their own server handles authentication. No secret to set.\n`;
+      continue;
+    }
+    out +=
+      `1. Register an OAuth client: ${PROVIDERS[k].register}\n` +
+      `2. Add these redirect URIs to the client:\n` +
+      `   - Local dev: \`http://localhost:8787/users/auth/${k}/callback\`\n` +
+      `   - Production: \`https://<your-worker-url>/users/auth/${k}/callback\`\n` +
+      `3. Put \`${idVar(k)}\` and \`${secretVar(k)}\` in \`.dev.vars\` for local development.\n` +
+      `4. For production, set the client id as a \`vars\` entry in [wrangler.jsonc](wrangler.jsonc)\n` +
+      `   (or the dashboard) and the secret with Wrangler:\n` +
+      `   \`\`\`bash\n` +
+      `   npx wrangler secret put ${secretVar(k)}\n` +
+      `   \`\`\`\n`;
+    if (k === 'patreon') {
+      out +=
+        `5. (Optional) To read entitlements, set the Patreon campaignId and the\n` +
+        `   identity.memberships scope in [src/index.ts](src/index.ts). Webhook freshness\n` +
+        `   additionally requires the \`PATREON_WEBHOOK_SECRET\` secret.\n`;
+    }
+  }
+  return out;
+}
+
+// The `wrangler secret put` lines for the README Deploy section.
+function renderDeploySecrets(selected) {
+  const withSecrets = selected.filter(hasCredentials);
+  if (withSecrets.length === 0) {
+    return '# (no auth provider secrets to set)';
+  }
+  return withSecrets.map((k) => `npx wrangler secret put ${secretVar(k)}`).join('\n');
 }
 
 const WORKER_PKG = '@startup-api/cloudflare';
@@ -233,45 +439,73 @@ async function main() {
       }
     }
 
+    // 3. Login providers to enable -----------------------------------------
+    //    --providers wins; otherwise an interactive checkbox list on a TTY, or
+    //    a comma-separated line from piped stdin. Unknown names warn; none = [].
+    let providers;
+    if (args.providers !== undefined) {
+      const sel = parseProviders(args.providers);
+      warnUnknownProviders(sel.unknown);
+      providers = sel.selected;
+    } else if (useReadline) {
+      rl.close(); // release stdin before clack takes it over in raw mode
+      const picked = await multiselect({
+        message: 'Login providers to enable',
+        options: PROVIDER_KEYS.map((k) => ({ value: k, label: PROVIDERS[k].label })),
+        required: false,
+      });
+      if (isCancel(picked)) fail('Cancelled.');
+      providers = picked;
+    } else if (pipedLines && pipedLines.length) {
+      const sel = parseProviders(
+        await ask(
+          `${cyan('?')} Login providers to enable ` +
+            `${dim(`(comma-separated: ${PROVIDER_KEYS.join(', ')}; blank for none)`)}: `,
+          '',
+        ),
+      );
+      warnUnknownProviders(sel.unknown);
+      providers = sel.selected;
+    } else {
+      providers = [];
+    }
+
     rl?.close();
 
-    // 3. Gather template data ----------------------------------------------
+    // 4. Gather template data ----------------------------------------------
     const worker = await resolveWorkerPackage();
     const sessionSecret = randomBytes(32).toString('hex');
     const vars = {
       __PROJECT_NAME__: pkgName,
       __ORIGIN_URL__: origin,
       __WORKER_VERSION__: `^${worker.version}`,
+      __PROVIDERS_CONFIG__: renderProvidersConfig(providers),
+      __PROVIDER_SECTION__: renderReadmeSection(providers),
+      __DEPLOY_SECRET_CMDS__: renderDeploySecrets(providers),
     };
 
     console.log(`\n${dim('Scaffolding into')} ${cyan(targetDir)}\n`);
 
-    // 4. Copy the static template ------------------------------------------
+    // 5. Copy the static template ------------------------------------------
     copyTemplate(TEMPLATE_DIR, targetDir, vars);
 
-    // 5. Generate wrangler.jsonc from the worker package's canonical template
+    // 6. Generate wrangler.jsonc from the worker package's canonical template
     const wranglerOut = applyVars(worker.wranglerTemplate, vars);
     writeFileSync(join(targetDir, 'wrangler.jsonc'), wranglerOut);
 
-    // 6. Write local dev secrets (gitignored) so `wrangler dev` works at once.
-    //    Required values are filled in; auth-provider credentials are left as
-    //    commented placeholders to enable (each provider is configured in
-    //    src/index.ts via the createStartupAPI factory). See .dev.vars.example.
+    // 7. Write local dev secrets (gitignored) so `wrangler dev` works at once.
+    //    Required values are filled in; selected auth providers get credential
+    //    placeholders to fill (each is configured in src/index.ts via the
+    //    createStartupAPI factory). See .dev.vars.example for all providers.
     const devVars =
       `# Local development secrets for \`wrangler dev\` (gitignored).\n` +
       `SESSION_SECRET="${sessionSecret}"\n` +
       `ORIGIN_URL="${origin}"\n` +
       `\n` +
-      `# Uncomment and fill in to enable an auth provider (configured in src/index.ts):\n` +
-      `# GOOGLE_CLIENT_ID=""\n` +
-      `# GOOGLE_CLIENT_SECRET=""\n` +
-      `# TWITCH_CLIENT_ID=""\n` +
-      `# TWITCH_CLIENT_SECRET=""\n` +
-      `# PATREON_CLIENT_ID=""\n` +
-      `# PATREON_CLIENT_SECRET=""\n`;
+      renderDevVarsProviders(providers);
     writeFileSync(join(targetDir, '.dev.vars'), devVars);
 
-    // 7. Install dependencies (runs the project's sync-assets postinstall) --
+    // 8. Install dependencies (runs the project's sync-assets postinstall) --
     let installed = false;
     if (args.install) {
       console.log(`${dim('Installing dependencies with npm…')}\n`);
@@ -282,10 +516,13 @@ async function main() {
       }
     }
 
-    // 8. Next steps ---------------------------------------------------------
+    // 9. Next steps ---------------------------------------------------------
     const rel = projectName;
     console.log(`\n${green('✔')} ${bold('Created your Startup API project!')}\n`);
-    console.log(`  Origin (proxied to): ${cyan(origin)}\n`);
+    console.log(`  Origin (proxied to): ${cyan(origin)}`);
+    console.log(
+      `  Login providers:     ${cyan(providers.length ? providerLabels(providers) : 'none')}\n`,
+    );
     console.log(bold('  Next steps:\n'));
     console.log(`    cd ${rel}`);
     if (!installed) console.log('    npm install');
@@ -295,10 +532,16 @@ async function main() {
     console.log(
       `    npx wrangler secret put SESSION_SECRET   ${dim('# set the production session secret')}`,
     );
-    console.log(
-      `\n  ${dim('Add provider credentials (GOOGLE/TWITCH/PATREON) to')} ${cyan('.dev.vars')}${dim(' and tune')}\n` +
-        `  ${dim('auth behavior in')} ${cyan('src/index.ts')}${dim('. See')} ${cyan('README.md')}.\n`,
-    );
+    if (providers.length) {
+      console.log(
+        `\n  ${dim('Finish login setup: add credentials for')} ${cyan(providerLabels(providers))} ${dim('to')}\n` +
+          `  ${cyan('.dev.vars')}${dim('. See the "Login providers" section of')} ${cyan('README.md')}.\n`,
+      );
+    } else {
+      console.log(
+        `\n  ${dim('No login providers enabled. Add one anytime in')} ${cyan('src/index.ts')}${dim('. See')} ${cyan('README.md')}.\n`,
+      );
+    }
   } finally {
     rl?.close();
   }

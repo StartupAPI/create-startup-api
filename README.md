@@ -28,10 +28,15 @@ npm create startup-api [name] [-- <options>]
 
 | Option              | Description                                                        |
 | :------------------ | :----------------------------------------------------------------- |
-| `name`              | Target directory / project name. Prompted if omitted.             |
-| `--origin <url>`    | Origin URL the worker proxies to. Prompted if omitted.            |
-| `--no-install`      | Skip running `npm install` in the new project.                    |
-| `--yes`, `-y`       | Non-interactive; requires `name` and `--origin`.                   |
+| `name`               | Target directory / project name. Prompted if omitted.            |
+| `--origin <url>`     | Origin URL the worker proxies to. Prompted if omitted.           |
+| `--providers <list>` | Comma-separated login providers to enable: `google`, `twitch`, `patreon`, `atproto`. If omitted, an interactive checkbox list is shown (blank for none). |
+| `--no-install`       | Skip running `npm install` in the new project.                   |
+| `--yes`, `-y`        | Non-interactive; requires `name` and `--origin`.                 |
+
+The chosen login providers are wired into the generated `src/index.ts`
+(`createStartupAPI` factory), pre-stubbed in `.dev.vars`, and documented with
+per-provider setup steps in the project's `README.md`.
 
 After creation:
 

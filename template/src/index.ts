@@ -23,26 +23,7 @@
 import { createStartupAPI } from '@startup-api/cloudflare';
 
 const api = createStartupAPI({
-  providers: {
-    // Enabled automatically when GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are set.
-    google: {
-      // scopes: 'https://www.googleapis.com/auth/calendar.readonly',
-    },
-    // Enabled automatically when TWITCH_CLIENT_ID / TWITCH_CLIENT_SECRET are set.
-    twitch: {
-      // scopes: 'channel:read:subscriptions',
-    },
-    // Enabled automatically when PATREON_CLIENT_ID / PATREON_CLIENT_SECRET are set.
-    patreon: {
-      // Request membership data so entitlements (active patron, tiers, benefits)
-      // can be read and forwarded to your origin.
-      // scopes: 'identity.memberships',
-      // campaignId: '<CAMPAIGN_ID>',
-      // Keep entitlements fresh. `cron` also needs a matching `triggers.crons`
-      // in wrangler.jsonc; `webhook` also needs PATREON_WEBHOOK_SECRET in env.
-      // freshness: { ttl: true, cron: { schedule: '0 */6 * * *' }, webhook: true },
-    },
-  },
+__PROVIDERS_CONFIG__
 
   // Gate paths and forward login/entitlement status to your origin. When no
   // policy is set every path is public (and identity headers are still
